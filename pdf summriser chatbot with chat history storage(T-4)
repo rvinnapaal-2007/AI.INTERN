@@ -1,0 +1,248 @@
+#IMP NOTE :  #"python -m streamlit run p3.py"(use these to run the code)*************************************
+import os
+import fitz
+import streamlit as st
+from dotenv import load_dotenv
+
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_groq import ChatGroq
+
+load_dotenv()
+
+st.set_page_config(
+    page_title="PDF Chatbot",
+    page_icon="📄",
+    layout="wide"
+)
+
+# ------------------------
+# Session State
+# ------------------------
+if "vector_store" not in st.session_state:
+    st.session_state.vector_store = None
+
+if "contains_images" not in st.session_state:
+    st.session_state.contains_images = False
+
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+
+if "current_pdf" not in st.session_state:
+    st.session_state.current_pdf = None
+
+# ------------------------
+# Sidebar
+# ------------------------
+with st.sidebar:
+
+    if st.button("🗑️ Reset All"):
+
+        st.session_state.vector_store = None
+        st.session_state.contains_images = False
+        st.session_state.chat_history = []
+        st.session_state.current_pdf = None
+
+        st.rerun()
+
+# ------------------------
+# LLM
+# ------------------------
+llm = ChatGroq(
+    model="llama-3.3-70b-versatile",
+    temperature=0
+)
+
+st.title("📄 PDF Chatbot")
+
+# ------------------------
+# Upload PDF
+# ------------------------
+uploaded_pdf = st.file_uploader(
+    "Upload PDF",
+    type=["pdf"]
+)
+
+if (
+    uploaded_pdf is not None
+    and uploaded_pdf.name != st.session_state.current_pdf
+):
+
+    with st.spinner("Processing PDF..."):
+
+        pdf_bytes = uploaded_pdf.read()
+
+        doc = fitz.open(
+            stream=pdf_bytes,
+            filetype="pdf"
+        )
+
+        extracted_text = ""
+        contains_images = False
+
+        for page in doc:
+
+            page_text = page.get_text()
+
+            if page_text:
+                extracted_text += page_text + "\n"
+
+            if len(page.get_images(full=True)) > 0:
+                contains_images = True
+
+        st.session_state.contains_images = contains_images
+
+        if not extracted_text.strip():
+
+            st.error(
+                "No readable text found in PDF."
+            )
+            st.stop()
+
+        docs = [
+            Document(
+                page_content=extracted_text
+            )
+        ]
+
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200
+        )
+
+        chunks = splitter.split_documents(docs)
+
+        embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-mpnet-base-v2"
+        )
+
+        vector_store = FAISS.from_documents(
+            chunks,
+            embeddings
+        )
+
+        st.session_state.vector_store = vector_store
+        st.session_state.current_pdf = uploaded_pdf.name
+
+    st.success("✅ PDF processed successfully!")
+
+# ------------------------
+# Disclaimer
+# ------------------------
+if st.session_state.contains_images:
+
+    st.warning(
+        """
+        ⚠️ Disclaimer:
+        This PDF contains images.
+        Images are not analyzed.
+        Answers are generated only from extracted text.
+        """
+    )
+
+# ------------------------
+# Display History
+# ------------------------
+for msg in st.session_state.chat_history:
+
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# ------------------------
+# Chat
+# ------------------------
+if st.session_state.vector_store:
+
+    question = st.chat_input(
+        "Ask a question..."
+    )
+
+    if question:
+
+        st.session_state.chat_history.append(
+            {
+                "role": "user",
+                "content": question
+            }
+        )
+
+        with st.chat_message("user"):
+            st.markdown(question)
+
+        docs = (
+            st.session_state.vector_store
+            .similarity_search(
+                question,
+                k=4
+            )
+        )
+
+        context = "\n\n".join(
+            d.page_content
+            for d in docs
+        )
+
+        history_text = ""
+
+        for msg in st.session_state.chat_history[-10:]:
+
+            history_text += (
+                f"{msg['role']}: "
+                f"{msg['content']}\n"
+            )
+
+        prompt = f"""
+You are a PDF assistant.
+
+Use ONLY the PDF context.
+
+Conversation History:
+{history_text}
+
+PDF Context:
+{context}
+
+Question:
+{question}
+
+Rules:
+- Answer only from context.
+- Use history for follow-up questions.
+- If answer is unavailable, say:
+
+"The information is not available in the uploaded PDF."
+
+Answer:
+"""
+
+        with st.chat_message("assistant"):
+
+            with st.spinner("Thinking..."):
+
+                response = llm.invoke(prompt)
+
+                answer = response.content
+
+                if st.session_state.contains_images:
+
+                    answer += """
+
+⚠️ Note:
+This PDF contains images that were not analyzed.
+Answers are based only on extracted text.
+"""
+
+                st.markdown(answer)
+
+        st.session_state.chat_history.append(
+            {
+                "role": "assistant",
+                "content": answer
+            }
+        )
+
+else:
+    st.info("Upload a PDF to begin.")
+    #"python -m streamlit run p3.py"(use these to run the code)
