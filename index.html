@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PDF Chat Assistant</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161922;
+    --panel-2: #1e2230;
+    --border: #2a2f3d;
+    --text: #e7e9ee;
+    --text-dim: #9aa1b1;
+    --accent: #6366f1;
+    --accent-hover: #818cf8;
+    --user-bubble: #6366f1;
+    --ai-bubble: #1e2230;
+    --danger: #ef4444;
+    --success: #22c55e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+  }
+  .app {
+    display: flex;
+    height: 100vh;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    width: 280px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .sidebar-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-header h1 {
+    font-size: 16px;
+    margin: 0 0 12px 0;
+    font-weight: 600;
+  }
+  .user-id-row {
+    display: flex;
+    gap: 6px;
+  }
+  .user-id-row input {
+    flex: 1;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    font-size: 13px;
+  }
+  .new-chat-btn {
+    margin: 12px 16px;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background 0.15s;
+  }
+  .new-chat-btn:hover { background: var(--accent); }
+
+  .upload-section {
+    padding: 0 16px 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .upload-status {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex-shrink: 0; }
+  .dot.active { background: var(--success); }
+
+  .upload-btn {
+    width: 100%;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px dashed var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 13px;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .upload-btn:hover { border-color: var(--accent); color: var(--text); }
+  .upload-btn input { display: none; }
+
+  .sessions-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+  .session-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-bottom: 4px;
+    font-size: 13px;
+    color: var(--text-dim);
+    transition: background 0.15s;
+  }
+  .session-item:hover { background: var(--panel-2); }
+  .session-item.active { background: var(--panel-2); color: var(--text); }
+  .session-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .session-delete {
+    opacity: 0;
+    background: none;
+    border: none;
+    color: var(--danger);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 2px 6px;
+  }
+  .session-item:hover .session-delete { opacity: 1; }
+
+  /* Main chat area */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+  }
+  .chat-header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    color: var(--text-dim);
+  }
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .empty-state {
+    margin: auto;
+    text-align: center;
+    color: var(--text-dim);
+    max-width: 420px;
+  }
+  .empty-state h2 { color: var(--text); font-size: 18px; margin-bottom: 8px; }
+  .empty-state p { font-size: 14px; line-height: 1.5; }
+
+  .msg-row { display: flex; }
+  .msg-row.user { justify-content: flex-end; }
+  .msg-row.ai { justify-content: flex-start; }
+  .bubble {
+    max-width: 70%;
+    padding: 12px 16px;
+    border-radius: 14px;
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .bubble.user { background: var(--user-bubble); color: white; border-bottom-right-radius: 4px; }
+  .bubble.ai { background: var(--ai-bubble); color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+
+  .typing-indicator {
+    display: flex;
+    gap: 4px;
+    padding: 14px 16px;
+    background: var(--ai-bubble);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    width: fit-content;
+  }
+  .typing-indicator span {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-dim);
+    animation: blink 1.2s infinite;
+  }
+  .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+  .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+
+  .input-bar {
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 10px;
+  }
+  .input-bar textarea {
+    flex: 1;
+    resize: none;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    max-height: 120px;
+  }
+  .input-bar textarea:focus { outline: none; border-color: var(--accent); }
+  .send-btn {
+    padding: 0 20px;
+    border-radius: 10px;
+    border: none;
+    background: var(--accent);
+    color: white;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+    transition: background 0.15s;
+  }
+  .send-btn:hover:not(:disabled) { background: var(--accent-hover); }
+  .send-btn:disabled { background: var(--panel-2); color: var(--text-dim); cursor: not-allowed; }
+
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 13px;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .toast.error { border-color: var(--danger); color: #fca5a5; }
+  .toast.success { border-color: var(--success); color: #86efac; }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h1>📄 PDF Chat</h1>
+      <div class="user-id-row">
+        <input id="userIdInput" type="text" placeholder="Enter user ID" />
+        <button class="new-chat-btn" id="loadUserBtn" style="margin:0; padding:8px 12px;">Go</button>
+      </div>
+    </div>
+
+    <div class="upload-section">
+      <div class="upload-status">
+        <span class="dot" id="pdfDot"></span>
+        <span id="pdfStatusText">No document loaded</span>
+      </div>
+      <label class="upload-btn" id="uploadLabel">
+        ⬆ Upload PDF
+        <input type="file" id="fileInput" accept="application/pdf" />
+      </label>
+    </div>
+
+    <button class="new-chat-btn" id="newChatBtn">+ New Chat</button>
+
+    <div class="sessions-list" id="sessionsList"></div>
+  </div>
+
+  <div class="main">
+    <div class="chat-header" id="chatHeader">No session selected</div>
+    <div class="messages" id="messages">
+      <div class="empty-state" id="emptyState">
+        <h2>Start a conversation</h2>
+        <p>Enter a user ID, upload a PDF, then create a new chat to start asking questions about your document.</p>
+      </div>
+    </div>
+    <div class="input-bar">
+      <textarea id="messageInput" placeholder="Ask something about your PDF..." rows="1" disabled></textarea>
+      <button class="send-btn" id="sendBtn" disabled>Send</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---- Config ----
+// Backend is reverse-proxied at /api by nginx (see frontend/nginx.conf)
+const API_BASE = "/api";
+
+// ---- State ----
+let state = {
+  userId: localStorage.getItem("pdfchat_user_id") || "",
+  sessions: {},       // { session_id: [{sender, text}, ...] }
+  activeSessionId: null,
+  hasPdf: false,
+};
+
+// ---- Utility ----
+function uuidv4() {
+  return crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+function showToast(message, type = "success") {
+  const existing = document.querySelector(".toast");
+  if (existing) existing.remove();
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3500);
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ---- Rendering ----
+function renderSessionsList() {
+  const list = document.getElementById("sessionsList");
+  list.innerHTML = "";
+  const ids = Object.keys(state.sessions);
+
+  if (ids.length === 0) {
+    list.innerHTML = `<div style="padding:12px;color:var(--text-dim);font-size:13px;">No sessions yet</div>`;
+    return;
+  }
+
+  ids.forEach((sid) => {
+    const item = document.createElement("div");
+    item.className = "session-item" + (sid === state.activeSessionId ? " active" : "");
+    const msgs = state.sessions[sid];
+    const preview = msgs.length > 0 ? msgs[0].text.slice(0, 28) : "Empty session";
+
+    item.innerHTML = `
+      <span class="session-label">${escapeHtml(preview)}${preview.length >= 28 ? "..." : ""}</span>
+      <button class="session-delete" data-sid="${sid}">✕</button>
+    `;
+    item.addEventListener("click", (e) => {
+      if (e.target.classList.contains("session-delete")) return;
+      setActiveSession(sid);
+    });
+    item.querySelector(".session-delete").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await deleteSession(sid);
+    });
+    list.appendChild(item);
+  });
+}
+
+function renderMessages() {
+  const container = document.getElementById("messages");
+  const emptyState = document.getElementById("emptyState");
+
+  if (!state.activeSessionId) {
+    container.innerHTML = "";
+    container.appendChild(emptyState);
+    return;
+  }
+
+  const msgs = state.sessions[state.activeSessionId] || [];
+  container.innerHTML = "";
+
+  if (msgs.length === 0) {
+    const div = document.createElement("div");
+    div.className = "empty-state";
+    div.innerHTML = `<h2>New chat</h2><p>Ask a question about your uploaded document.</p>`;
+    container.appendChild(div);
+    return;
+  }
+
+  msgs.forEach((m) => {
+    const row = document.createElement("div");
+    row.className = `msg-row ${m.sender === "user" ? "user" : "ai"}`;
+    const bubble = document.createElement("div");
+    bubble.className = `bubble ${m.sender === "user" ? "user" : "ai"}`;
+    bubble.textContent = m.text;
+    row.appendChild(bubble);
+    container.appendChild(row);
+  });
+
+  container.scrollTop = container.scrollHeight;
+}
+
+function showTypingIndicator() {
+  const container = document.getElementById("messages");
+  const row = document.createElement("div");
+  row.className = "msg-row ai";
+  row.id = "typingRow";
+  row.innerHTML = `<div class="typing-indicator"><span></span><span></span><span></span></div>`;
+  container.appendChild(row);
+  container.scrollTop = container.scrollHeight;
+}
+
+function hideTypingIndicator() {
+  const row = document.getElementById("typingRow");
+  if (row) row.remove();
+}
+
+function updatePdfStatus() {
+  const dot = document.getElementById("pdfDot");
+  const text = document.getElementById("pdfStatusText");
+  if (state.hasPdf) {
+    dot.classList.add("active");
+    text.textContent = "Document ready";
+  } else {
+    dot.classList.remove("active");
+    text.textContent = "No document loaded";
+  }
+}
+
+function updateInputState() {
+  const input = document.getElementById("messageInput");
+  const btn = document.getElementById("sendBtn");
+  const canChat = !!state.userId && !!state.activeSessionId && state.hasPdf;
+  input.disabled = !canChat;
+  btn.disabled = !canChat;
+  input.placeholder = !state.userId
+    ? "Enter a user ID first..."
+    : !state.hasPdf
+    ? "Upload a PDF first..."
+    : !state.activeSessionId
+    ? "Create a new chat first..."
+    : "Ask something about your PDF...";
+}
+
+function updateChatHeader() {
+  const header = document.getElementById("chatHeader");
+  if (!state.userId) {
+    header.textContent = "No user selected";
+  } else if (!state.activeSessionId) {
+    header.textContent = `User: ${state.userId} — select or create a chat`;
+  } else {
+    header.textContent = `User: ${state.userId} — Session: ${state.activeSessionId.slice(0, 8)}...`;
+  }
+}
+
+function setActiveSession(sid) {
+  state.activeSessionId = sid;
+  renderSessionsList();
+  renderMessages();
+  updateInputState();
+  updateChatHeader();
+}
+
+// ---- API calls ----
+async function loadUserHistory() {
+  if (!state.userId) {
+    showToast("Please enter a user ID", "error");
+    return;
+  }
+  localStorage.setItem("pdfchat_user_id", state.userId);
+
+  try {
+    const res = await fetch(`${API_BASE}/history/${encodeURIComponent(state.userId)}`);
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const data = await res.json();
+
+    state.sessions = data.sessions || {};
+    state.hasPdf = !!data.has_pdf;
+    state.activeSessionId = null;
+
+    updatePdfStatus();
+    renderSessionsList();
+    renderMessages();
+    updateInputState();
+    updateChatHeader();
+
+    showToast(`Loaded ${Object.keys(state.sessions).length} session(s)`, "success");
+  } catch (err) {
+    showToast(`Failed to load history: ${err.message}`, "error");
+  }
+}
+
+async function uploadPdf(file) {
+  if (!state.userId) {
+    showToast("Enter a user ID before uploading", "error");
+    return;
+  }
+  if (!file.name.toLowerCase().endsWith(".pdf")) {
+    showToast("Only PDF files are supported", "error");
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("user_id", state.userId);
+
+  const label = document.getElementById("uploadLabel");
+  const originalText = label.firstChild.textContent;
+  label.firstChild.textContent = " Uploading...";
+
+  try {
+    const res = await fetch(`${API_BASE}/upload`, {
+      method: "POST",
+      body: formData,
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || "Upload failed");
+    }
+
+    state.hasPdf = true;
+    updatePdfStatus();
+    updateInputState();
+    showToast(data.message || "PDF uploaded successfully", "success");
+  } catch (err) {
+    showToast(`Upload failed: ${err.message}`, "error");
+  } finally {
+    label.firstChild.textContent = originalText;
+  }
+}
+
+async function sendMessage() {
+  const input = document.getElementById("messageInput");
+  const text = input.value.trim();
+  if (!text || !state.activeSessionId || !state.userId) return;
+
+  if (!state.sessions[state.activeSessionId]) {
+    state.sessions[state.activeSessionId] = [];
+  }
+  state.sessions[state.activeSessionId].push({ sender: "user", text });
+  renderMessages();
+  input.value = "";
+  input.style.height = "auto";
+
+  document.getElementById("sendBtn").disabled = true;
+  showTypingIndicator();
+
+  const formData = new FormData();
+  formData.append("message", text);
+  formData.append("user_id", state.userId);
+  formData.append("session_id", state.activeSessionId);
+
+  try {
+    const res = await fetch(`${API_BASE}/chat`, {
+      method: "POST",
+      body: formData,
+    });
+    const data = await res.json();
+
+    hideTypingIndicator();
+
+    if (!res.ok) {
+      throw new Error(data.detail || "Chat request failed");
+    }
+
+    state.sessions[state.activeSessionId].push({ sender: "ai", text: data.response });
+    renderMessages();
+    renderSessionsList();
+  } catch (err) {
+    hideTypingIndicator();
+    state.sessions[state.activeSessionId].push({
+      sender: "ai",
+      text: `⚠ Error: ${err.message}`,
+    });
+    renderMessages();
+    showToast(err.message, "error");
+  } finally {
+    updateInputState();
+  }
+}
+
+async function deleteSession(sid) {
+  try {
+    const res = await fetch(`${API_BASE}/session/${sid}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Failed to delete session");
+
+    delete state.sessions[sid];
+    if (state.activeSessionId === sid) {
+      state.activeSessionId = null;
+    }
+    renderSessionsList();
+    renderMessages();
+    updateInputState();
+    updateChatHeader();
+    showToast("Session deleted", "success");
+  } catch (err) {
+    showToast(err.message, "error");
+  }
+}
+
+function createNewChat() {
+  if (!state.userId) {
+    showToast("Enter a user ID first", "error");
+    return;
+  }
+  if (!state.hasPdf) {
+    showToast("Upload a PDF before starting a chat", "error");
+    return;
+  }
+  const newSid = uuidv4();
+  state.sessions[newSid] = [];
+  setActiveSession(newSid);
+}
+
+// ---- Event listeners ----
+document.getElementById("loadUserBtn").addEventListener("click", () => {
+  state.userId = document.getElementById("userIdInput").value.trim();
+  loadUserHistory();
+});
+
+document.getElementById("userIdInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    state.userId = e.target.value.trim();
+    loadUserHistory();
+  }
+});
+
+document.getElementById("fileInput").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (file) uploadPdf(file);
+  e.target.value = "";
+});
+
+document.getElementById("newChatBtn").addEventListener("click", createNewChat);
+
+document.getElementById("sendBtn").addEventListener("click", sendMessage);
+
+document.getElementById("messageInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+document.getElementById("messageInput").addEventListener("input", (e) => {
+  e.target.style.height = "auto";
+  e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+});
+
+// ---- Init ----
+window.addEventListener("DOMContentLoaded", () => {
+  if (state.userId) {
+    document.getElementById("userIdInput").value = state.userId;
+    loadUserHistory();
+  }
+});
+</script>
+
+</body>
+</html>
